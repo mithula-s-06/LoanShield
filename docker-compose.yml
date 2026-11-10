@@ -1,0 +1,136 @@
+version: '3.8'
+
+services:
+  # -------------------------------------------------------------
+  # DATABASE: MongoDB Underwriting Store
+  # -------------------------------------------------------------
+  mongodb:
+    image: mongo:6.0
+    container_name: loanshield-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: loanshield_db
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - loanshield-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -------------------------------------------------------------
+  # MICROSERVICE 1: ML Risk & Explainability Service (Port 8001)
+  # -------------------------------------------------------------
+  ml-service:
+    build:
+      context: .
+      dockerfile: backend/microservices/ml_service/Dockerfile
+    container_name: loanshield-ml-service
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - PORT=8001
+      - LOW_RISK_THRESHOLD=0.30
+      - HIGH_RISK_THRESHOLD=0.60
+      - PRIMARY_MODEL=xgboost
+    volumes:
+      - ./backend/ml/saved_models:/app/ml/saved_models
+    networks:
+      - loanshield-network
+
+  # -------------------------------------------------------------
+  # MICROSERVICE 2: Underwriting & Application Service (Port 8002)
+  # -------------------------------------------------------------
+  application-service:
+    build:
+      context: .
+      dockerfile: backend/microservices/application_service/Dockerfile
+    container_name: loanshield-app-service
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      - PORT=8002
+      - MONGODB_URI=mongodb://mongodb:27017
+      - DATABASE_NAME=loanshield_db
+      - ML_SERVICE_URL=http://ml-service:8001
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      ml-service:
+        condition: service_started
+    networks:
+      - loanshield-network
+
+  # -------------------------------------------------------------
+  # MICROSERVICE 3: Loan Products & Pricing Service (Port 8003)
+  # -------------------------------------------------------------
+  pricing-service:
+    build:
+      context: .
+      dockerfile: backend/microservices/pricing_service/Dockerfile
+    container_name: loanshield-pricing-service
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      - PORT=8003
+    networks:
+      - loanshield-network
+
+  # -------------------------------------------------------------
+  # MICROSERVICE 4: API Gateway (Port 8000)
+  # -------------------------------------------------------------
+  api-gateway:
+    build:
+      context: .
+      dockerfile: backend/microservices/api_gateway/Dockerfile
+    container_name: loanshield-api-gateway
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - GATEWAY_PORT=8000
+      - ML_SERVICE_URL=http://ml-service:8001
+      - APPLICATION_SERVICE_URL=http://application-service:8002
+      - PRICING_SERVICE_URL=http://pricing-service:8003
+    depends_on:
+      - ml-service
+      - application-service
+      - pricing-service
+    networks:
+      - loanshield-network
+
+  # -------------------------------------------------------------
+  # FRONTEND: Next.js Bank Analyst Portal (Port 3000)
+  # -------------------------------------------------------------
+  frontend:
+    image: node:20-alpine
+    container_name: loanshield-frontend
+    restart: unless-stopped
+    working_dir: /app
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api
+    command: sh -c "npm install && npm run dev"
+    depends_on:
+      - api-gateway
+    networks:
+      - loanshield-network
+
+networks:
+  loanshield-network:
+    driver: bridge
+
+volumes:
+  mongo-data:
+    driver: local

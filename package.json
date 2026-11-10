@@ -1,0 +1,12 @@
+{
+  "name": "loanshield-root",
+  "version": "1.0.0",
+  "description": "LoanShield - Intelligent Loan Default Risk Assessment",
+  "scripts": {
+    "start": "concurrently -n \"BACKEND,FRONTEND\" -c \"bgBlue.bold,bgMagenta.bold\" \"cd backend && venv\\Scripts\\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload\" \"cd frontend && npm run dev\"",
+    "dev": "concurrently -n \"BACKEND,FRONTEND\" -c \"bgBlue.bold,bgMagenta.bold\" \"cd backend && venv\\Scripts\\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload\" \"cd frontend && npm run dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
